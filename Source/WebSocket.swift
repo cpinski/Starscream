@@ -38,6 +38,10 @@ public protocol WebSocketPongDelegate: class {
     func websocketDidReceivePong(socket: WebSocket)
 }
 
+public protocol WebSocketPingDelegate: class {
+    func websocketDidReceivePing(socket: WebSocket)
+}
+
 public class WebSocket: NSObject, NSStreamDelegate {
 
     enum OpCode: UInt8 {
@@ -113,8 +117,11 @@ public class WebSocket: NSObject, NSStreamDelegate {
     /// and also connection/disconnect messages.
     public weak var delegate: WebSocketDelegate?
 
-    /// Recives a callback for each pong message recived.
+    /// Recives a callback for each pong message received.
     public weak var pongDelegate: WebSocketPongDelegate?
+    
+    /// Recives a callback for each ping message received.
+    public weak var pingDelegate: WebSocketPingDelegate?
 
 
     // MARK: - Block based API.
@@ -124,6 +131,7 @@ public class WebSocket: NSObject, NSStreamDelegate {
     public var onText: ((String) -> Void)?
     public var onData: ((NSData) -> Void)?
     public var onPong: ((Void) -> Void)?
+    public var onPing: ((Void) -> Void)?
 
     public var headers = [String: String]()
     public var voipEnabled = false
@@ -586,7 +594,17 @@ public class WebSocket: NSObject, NSStreamDelegate {
                 writeError(errCode)
                 return emptyBuffer
             }
-            let isControlFrame = (receivedOpcode == .ConnectionClose || receivedOpcode == .Ping)
+            let receivedPing: Bool = (receivedOpcode == .Ping)
+            if receivedPing {
+                if canDispatch {
+                    dispatch_async(callbackQueue) { [weak self] in
+                        guard let s = self else { return }
+                        s.onPing?()
+                        s.pingDelegate?.websocketDidReceivePing(s)
+                    }
+                }
+            }
+            let isControlFrame = (receivedOpcode == .ConnectionClose || receivedPing)
             if !isControlFrame && (receivedOpcode != .BinaryFrame && receivedOpcode != .ContinueFrame &&
                 receivedOpcode != .TextFrame && receivedOpcode != .Pong) {
                 let errCode = CloseCode.ProtocolError.rawValue
